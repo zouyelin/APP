@@ -238,7 +238,7 @@ struct TabbarView: View {
                             .fill(.ultraThinMaterial)
                     }
 
-                    Text(TabEnum.search.emojiIcon)
+                    Text(TabEnum.settings.emojiIcon)
                         .font(.system(size: 28))
                 }
                 .frame(width: tabHeight, height: tabHeight)
