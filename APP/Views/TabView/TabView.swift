@@ -2,10 +2,10 @@ import SwiftUI
 import UIKit
 
 enum TabEnum: String, CaseIterable, Hashable {
-    case search
+    case settings
     case downloads
     case purchased
-    case settings
+    case search
 
     var title: String {
         switch self {
@@ -113,15 +113,15 @@ struct TabbarView: View {
     @ViewBuilder
     private var standardTabView: some View {
         TabView(selection: $selectedTab) {
-            TabEnum.view(for: .search, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
+            TabEnum.view(for: .settings, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
                 .tabItem {
                     Label {
-                        Text(TabEnum.search.title)
+                        Text(TabEnum.settings.title)
                     } icon: {
-                        Image(systemName: TabEnum.search.icon)
+                        Image(systemName: TabEnum.settings.icon)
                     }
                 }
-                .tag(TabEnum.search)
+                .tag(TabEnum.settings)
 
             TabEnum.view(for: .downloads, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
                 .tabItem {
@@ -143,15 +143,15 @@ struct TabbarView: View {
                 }
                 .tag(TabEnum.purchased)
 
-            TabEnum.view(for: .settings, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
+            TabEnum.view(for: .search, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
                 .tabItem {
                     Label {
-                        Text(TabEnum.settings.title)
+                        Text(TabEnum.search.title)
                     } icon: {
-                        Image(systemName: TabEnum.settings.icon)
+                        Image(systemName: TabEnum.search.icon)
                     }
                 }
-                .tag(TabEnum.settings)
+                .tag(TabEnum.search)
         }
         
         .toolbarBackground(.visible, for: .tabBar)
@@ -164,8 +164,8 @@ struct TabbarView: View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
                 TabView(selection: $selectedTab) {
-                    TabEnum.view(for: .search, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
-                        .tag(TabEnum.search)
+                    TabEnum.view(for: .settings, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
+                        .tag(TabEnum.settings)
 
                     TabEnum.view(for: .downloads, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
                         .tag(TabEnum.downloads)
@@ -173,8 +173,8 @@ struct TabbarView: View {
                     TabEnum.view(for: .purchased, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
                         .tag(TabEnum.purchased)
 
-                    TabEnum.view(for: .settings, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
-                        .tag(TabEnum.settings)
+                    TabEnum.view(for: .search, themeManager: themeManager, tabBarStyleManager: tabBarStyleManager)
+                        .tag(TabEnum.search)
                 }
                 .safeAreaInset(edge: .bottom) {
                     Color.clear.frame(height: geo.safeAreaInsets.bottom + tabBarStyleManager.floatingConfig.height + tabBarStyleManager.floatingConfig.bottomOffset)
@@ -203,7 +203,7 @@ struct TabbarView: View {
 
         return HStack(spacing: 16) {
             HStack(spacing: 0) {
-                ForEach([TabEnum.search, .downloads, .purchased], id: \.self) { tab in
+                ForEach([TabEnum.settings, .downloads, .purchased], id: \.self) { tab in
                     tabButton(for: tab, height: tabHeight)
                         .frame(minWidth: Self.floatingTabMinWidth, maxWidth: .infinity)
                 }
@@ -224,13 +224,13 @@ struct TabbarView: View {
 
             Button(action: {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
-                    selectedTab = .settings
+                    selectedTab = .search
                 }
                 let impactMed = UIImpactFeedbackGenerator(style: .light)
                 impactMed.impactOccurred()
             }) {
                 ZStack {
-                    if selectedTab == .settings {
+                    if selectedTab == .search {
                         Circle()
                             .fill(themeManager.accentColor)
                     } else {
@@ -238,13 +238,13 @@ struct TabbarView: View {
                             .fill(.ultraThinMaterial)
                     }
 
-                    Text(TabEnum.settings.emojiIcon)
+                    Text(TabEnum.search.emojiIcon)
                         .font(.system(size: 28))
                 }
                 .frame(width: tabHeight, height: tabHeight)
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(selectedTab == .settings ? 0 : 0.15), lineWidth: 0.5)
+                        .stroke(Color.white.opacity(selectedTab == .search ? 0 : 0.15), lineWidth: 0.5)
                 )
                 .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: 8)
                 .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
