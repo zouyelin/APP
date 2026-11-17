@@ -1,18 +1,42 @@
 name: Build IPA
 
 on:
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-15
+    # arm64 池子经常排不到机器（GitHub 明示 capacity constraints），
+    # 改用 Intel(x86_64) 池子；编 iOS 包不受影响，只是慢一点。
+    runs-on: macos-15-intel
     steps:
-     - uses: actions/checkout@v4
-     - name: Compile
-       run: make
-     
-     - name: Upload artifact
-       uses: actions/upload-artifact@v4
-       with:
-        name: APP
-        path: APP.ipa
+      - uses: actions/checkout@v4
+
+      - name: 选用最新 Xcode
+        run: |
+          set -e
+          XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
+          echo "使用 $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
+      - name: Compile
+        run: |
+          set -o pipefail
+          make 2>&1 | tee /tmp/build.log
+
+      - name: 失败时上传日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          if-no-files-found: ignore
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: APP
+          path: APP.ipa
+          if-no-files-found: error
