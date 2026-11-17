@@ -70,7 +70,7 @@ enum TabEnum: String, CaseIterable, Hashable {
 }
 
 struct TabbarView: View {
-    @State private var selectedTab: TabEnum = .settings
+    @State private var selectedTab: TabEnum = .search
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var tabBarStyleManager: TabBarStyleManager
 
