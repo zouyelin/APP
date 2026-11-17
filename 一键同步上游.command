@@ -10,7 +10,7 @@
 #       selectedTab: TabEnum = .settings  →  .search
 #    2. APP/Views/Download/DownloadView.swift:1031
 #       https://github.com/pxx917144686   →  https://github.com/zouyelin/APP
-#  .github/workflows/ios.yml 保留你自己的（不被上游覆盖）
+#  上游所有文件全部同步（含 .github），同步后再打补丁
 #
 #  用法：把这个文件放到 zouyelin/APP 仓库根目录，双击运行。
 # ============================================================
@@ -95,7 +95,7 @@ UP_VER=$(grep -m1 -oE '([0-9]+\.[0-9]+\.[0-9]+)' "$UPSRC/README.md" 2>/dev/null 
 [ -n "$UP_VER" ] && echo "    上游版本: $UP_VER"
 
 # ---------- 4. 同步文件 ----------
-say "同步文件（跳过 .git 与 .github）"
+say "同步文件（全量，仅跳过 .git）"
 CHANGED=0; NEW=0; DEL=0
 cd "$UPSRC" || die "进入上游目录失败"
 
@@ -103,7 +103,7 @@ cd "$UPSRC" || die "进入上游目录失败"
 while IFS= read -r f; do
   f="${f#./}"
   case "$f" in
-    .git/*|.github/*|.DS_Store|*/.DS_Store) continue ;;
+    .git/*|.DS_Store|*/.DS_Store) continue ;;
   esac
   [ -f "$f" ] || continue
   mkdir -p "$WORKDIR/$(dirname "$f")" 2>/dev/null
@@ -112,14 +112,14 @@ while IFS= read -r f; do
   elif ! cmp -s "$f" "$WORKDIR/$f"; then
     cp "$f" "$WORKDIR/$f"; echo "    更新: $f"; CHANGED=$((CHANGED+1))
   fi
-done < <(find . -type f ! -path "./.git/*" ! -path "./.github/*")
+done < <(find . -type f ! -path "./.git/*")
 
 cd "$WORKDIR" || die "回到工作目录失败"
 
 # 删除上游已移除的文件（只看 git 跟踪的，且跳过保留项）
 while IFS= read -r f; do
   case "$f" in
-    .git/*|.github/*|.DS_Store|*/.DS_Store) continue ;;
+    .git/*|.DS_Store|*/.DS_Store) continue ;;
   esac
   if [ ! -e "$UPSRC/$f" ] && [ -e "$WORKDIR/$f" ]; then
     rm -f "$WORKDIR/$f"; echo "    删除: $f"; DEL=$((DEL+1))
@@ -245,7 +245,7 @@ else
   warn "找不到 $DV"
 fi
 
-[ -f ".github/workflows/ios.yml" ] && ok "已保留你自己的 .github/workflows/ios.yml（跳过上游）"
+[ -f ".github/workflows/ios.yml" ] && ok "已同步上游 .github/workflows/ios.yml"
 
 # ---------- 6. 汇总 ----------
 echo
