@@ -9,12 +9,48 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-     - uses: actions/checkout@v3
-     - name: Compile
-       run: make
-     
-     - name: Upload artifact
-       uses: actions/upload-artifact@v4
-       with:
-        name: APP
-        path: APP.ipa
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          sw_vers -productVersion
+
+      - name: Ensure shared scheme
+        run: |
+          set -e
+          ROOT="$PWD"
+          if [ ! -f Makefile ]; then
+            MK=$(find . -maxdepth 3 -name Makefile -not -path "*/node_modules/*" | head -n 1)
+            if [ -n "$MK" ]; then ROOT="$(cd "$(dirname "$MK")" && pwd)"; fi
+          fi
+          cd "$ROOT"
+          echo "PROJECT_DIR=$ROOT"
+          SD="APP.xcodeproj/xcshareddata/xcschemes"
+          if [ -f "$SD/APP.xcscheme" ]; then
+            echo "scheme already exists (skip)"
+          else
+            mkdir -p "$SD"
+            python3 -c "import base64,gzip,pathlib;pathlib.Path('$SD/APP.xcscheme').write_bytes(gzip.decompress(base64.b64decode('H4sIAAAAAAACA+1WTXPaMBC98ys8vpePNAm0Q8iQADPM0IQJST+Owl4ctbLkkSU35NdnZdlg4VJIeul06pt2n1arx9uH+pdPMfMykCkV/MLvNNu+BzwQIeXRhf9wP3nX8y8Hjf4ieIQYGp7nzUiqHpJIkhA+223ehed3zk/bvklnlViz6w9MrH+lKQuHgcKEWeOXEEkYA0afIU+SJYPUbPo2XvgFZmkS0zhhNKBqBAnwEFujW9ygAFbrj7mSCClTv8iut6nykImQ95AqvPNOCy7mTnN+CDOXYkXZIdRQBo80O4jihK2fK6iBA+tvmLuDFUjkBpw8fhvEFKlTdEVBmlqJpDGRa78GZxowx5UL7511JqMPZ+OT8Vm31+2ettsnnffnV0N/73E3JAazczifN0mS7D+oAqyBNrcKrwVXhHLbTVAuPprqT6hVLCW+75LTqrNTFUVrVxUbMbX2qMlJ2IgRjSPr/JfDblc00pKoYhBGsNRReb0UGAQKwjwYgXSp/mqu0yxzE6F5mJfZhJqz2ehqt9aMaI4DemytEu7WehSahQ8p2Kwd+KGM0jHPagNnLp6P7JY1N2TXVa5s2X+FLWZJUmuWy7ddxnUK1zpVIv4i5A+c3BGVeKaQa4O6uS1hNOJCQjo3ZpkqbGOhiIJbbs9ysaFpaSQCHSOusNy6c+SoBciMBjB+wpKlC+OQgUQjKYFou+LnTAT55RY01mzDfN1TzQ+KjhbqQBnzM8vtDMkiYjnDlj4hg5aNmv3ud6nXWNQf+dNx5nTYmd5uS7/zpEpuh/BinqrzY0P2rwaOGKk7VD5J4TWjXkJJBuG9EMxl/JVyPyDh/5r7SzXnKMzG7JsEjvbxopKzraiUv4HeIF8JGRBWbJ/yWxkRju9I6cgJj6zWxydsy+p80HgBjTphyvQKAAA=')))"
+            echo "scheme created"
+          fi
+          xcodebuild -list -project APP.xcodeproj
+
+      - name: Build
+        run: |
+          set -o pipefail
+          make 2>&1 | tee /tmp/build.log
+
+      - name: Verify ipa
+        run: |
+          set -e
+          test -s APP.ipa || { echo "::error::APP.ipa was not produced by make"; exit 1; }
+          ls -lh APP.ipa
+          unzip -l APP.ipa | head -n 15
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: APP-ipa
+          path: APP.ipa
+          if-no-files-found: error
