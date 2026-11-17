@@ -11,12 +11,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Toolchain
+      # 工程依赖（swift-nio 2.101.3 / swift-log 1.15 / async-http-client 1.36 /
+      # swift-crypto 4.5.1 等）要求 Swift tools 6.1~6.2；
+      # macos-15 runner 默认 Xcode 16.4 (Swift 6.0)，直接 make 会报
+      # "Could not resolve package dependencies"，所以先切到 Xcode 26+。
+      - name: Select Xcode 26
         run: |
+          set -e
+          XC=$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$XC" ]; then
+            echo "::error::runner 上没有 Xcode 26+，现有版本："
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
+          echo "使用 $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
           sw_vers -productVersion
 
-      - name: Ensure shared scheme
+      # 仓库根目录可能直接是工程，也可能套了一层 APP/，统一找到含 Makefile 的目录
+      - name: Locate project root
+        id: root
         run: |
           set -e
           ROOT="$PWD"
@@ -24,33 +39,88 @@ jobs:
             MK=$(find . -maxdepth 3 -name Makefile -not -path "*/node_modules/*" | head -n 1)
             if [ -n "$MK" ]; then ROOT="$(cd "$(dirname "$MK")" && pwd)"; fi
           fi
-          cd "$ROOT"
           echo "PROJECT_DIR=$ROOT"
-          SD="APP.xcodeproj/xcshareddata/xcschemes"
-          if [ -f "$SD/APP.xcscheme" ]; then
-            echo "scheme already exists (skip)"
-          else
-            mkdir -p "$SD"
-            python3 -c "import base64,gzip,pathlib;pathlib.Path('$SD/APP.xcscheme').write_bytes(gzip.decompress(base64.b64decode('H4sIAAAAAAACA+1WTXPaMBC98ys8vpePNAm0Q8iQADPM0IQJST+Owl4ctbLkkSU35NdnZdlg4VJIeul06pt2n1arx9uH+pdPMfMykCkV/MLvNNu+BzwQIeXRhf9wP3nX8y8Hjf4ieIQYGp7nzUiqHpJIkhA+223ehed3zk/bvklnlViz6w9MrH+lKQuHgcKEWeOXEEkYA0afIU+SJYPUbPo2XvgFZmkS0zhhNKBqBAnwEFujW9ygAFbrj7mSCClTv8iut6nykImQ95AqvPNOCy7mTnN+CDOXYkXZIdRQBo80O4jihK2fK6iBA+tvmLuDFUjkBpw8fhvEFKlTdEVBmlqJpDGRa78GZxowx5UL7511JqMPZ+OT8Vm31+2ettsnnffnV0N/73E3JAazczifN0mS7D+oAqyBNrcKrwVXhHLbTVAuPprqT6hVLCW+75LTqrNTFUVrVxUbMbX2qMlJ2IgRjSPr/JfDblc00pKoYhBGsNRReb0UGAQKwjwYgXSp/mqu0yxzE6F5mJfZhJqz2ehqt9aMaI4DemytEu7WehSahQ8p2Kwd+KGM0jHPagNnLp6P7JY1N2TXVa5s2X+FLWZJUmuWy7ddxnUK1zpVIv4i5A+c3BGVeKaQa4O6uS1hNOJCQjo3ZpkqbGOhiIJbbs9ysaFpaSQCHSOusNy6c+SoBciMBjB+wpKlC+OQgUQjKYFou+LnTAT55RY01mzDfN1TzQ+KjhbqQBnzM8vtDMkiYjnDlj4hg5aNmv3ud6nXWNQf+dNx5nTYmd5uS7/zpEpuh/BinqrzY0P2rwaOGKk7VD5J4TWjXkJJBuG9EMxl/JVyPyDh/5r7SzXnKMzG7JsEjvbxopKzraiUv4HeIF8JGRBWbJ/yWxkRju9I6cgJj6zWxydsy+p80HgBjTphyvQKAAA=')))"
-            echo "scheme created"
-          fi
-          xcodebuild -list -project APP.xcodeproj
+          echo "dir=$ROOT" >> "$GITHUB_OUTPUT"
 
-      - name: Build
+      # 工程不带共享 scheme 时 xcodebuild -scheme 会报找不到。
+      # 目标名和 UUID 从 pbxproj 现读，作者更新工程后本文件不用改。
+      - name: Ensure shared scheme
+        working-directory: ${{ steps.root.outputs.dir }}
+        run: |
+          set -e
+          PROJ=$(ls -d *.xcodeproj 2>/dev/null | head -n 1)
+          if [ -z "$PROJ" ]; then echo "::error::找不到 .xcodeproj"; exit 1; fi
+          PBX="$PROJ/project.pbxproj"
+
+          INFO=$(python3 -c "import re,sys;s=open(sys.argv[1],errors='replace').read();m=[x for x in re.finditer(r'([0-9A-F]{24}) /\* ([^*]+) \*/ = \{\s*isa = PBXNativeTarget;(.*?)\n\t\t\};',s,re.S) if 'com.apple.product-type.application' in x.group(3)];print((m[0].group(1)+' '+m[0].group(2)) if m else '')" "$PBX")
+          UUID=$(echo "$INFO" | awk '{print $1}')
+          NAME=$(echo "$INFO" | awk '{print $2}')
+          if [ -z "$UUID" ]; then echo "::error::pbxproj 里没找到 application 目标"; exit 1; fi
+          echo "目标: $NAME / $UUID"
+
+          SD="$PROJ/xcshareddata/xcschemes"
+          mkdir -p "$SD"
+          if [ -f "$SD/$NAME.xcscheme" ]; then
+            echo "scheme 已存在，跳过"
+          else
+            REF="<BuildableReference BuildableIdentifier=\"primary\" BlueprintIdentifier=\"$UUID\" BuildableName=\"$NAME.app\" BlueprintName=\"$NAME\" ReferencedContainer=\"container:$PROJ\"></BuildableReference>"
+            {
+              echo '<?xml version="1.0" encoding="UTF-8"?>'
+              echo '<Scheme LastUpgradeVersion = "1640" version = "1.7">'
+              echo '   <BuildAction parallelizeBuildables = "YES" buildImplicitDependencies = "YES">'
+              echo '      <BuildActionEntries>'
+              echo '         <BuildActionEntry buildForTesting = "YES" buildForRunning = "YES" buildForProfiling = "YES" buildForArchiving = "YES" buildForAnalyzing = "YES">'
+              echo "            $REF"
+              echo '         </BuildActionEntry>'
+              echo '      </BuildActionEntries>'
+              echo '   </BuildAction>'
+              echo '   <TestAction buildConfiguration = "Debug" selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv = "YES">'
+              echo '      <Testables></Testables>'
+              echo '   </TestAction>'
+              echo '   <LaunchAction buildConfiguration = "Debug" selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB" launchStyle = "0" useCustomWorkingDirectory = "NO" ignoresPersistentStateOnLaunch = "NO" debugDocumentVersioning = "YES" debugServiceExtension = "internal" allowLocationSimulation = "YES">'
+              echo '      <BuildableProductRunnable runnableDebuggingMode = "0">'
+              echo "         $REF"
+              echo '      </BuildableProductRunnable>'
+              echo '   </LaunchAction>'
+              echo '   <ProfileAction buildConfiguration = "Release" shouldUseLaunchSchemeArgsEnv = "YES" savedToolIdentifier = "" useCustomWorkingDirectory = "NO" debugDocumentVersioning = "YES">'
+              echo '      <BuildableProductRunnable runnableDebuggingMode = "0">'
+              echo "         $REF"
+              echo '      </BuildableProductRunnable>'
+              echo '   </ProfileAction>'
+              echo '   <AnalyzeAction buildConfiguration = "Debug"></AnalyzeAction>'
+              echo '   <ArchiveAction buildConfiguration = "Release" revealArchiveInOrganizer = "YES"></ArchiveAction>'
+              echo '</Scheme>'
+            } > "$SD/$NAME.xcscheme"
+            echo "scheme 已生成: $SD/$NAME.xcscheme"
+          fi
+          # 仅作信息输出，包解析失败不阻断（真正失败会在 Compile 步暴露）
+          xcodebuild -list -project "$PROJ" || true
+
+      - name: Compile
+        working-directory: ${{ steps.root.outputs.dir }}
         run: |
           set -o pipefail
           make 2>&1 | tee /tmp/build.log
 
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          if-no-files-found: ignore
+
       - name: Verify ipa
+        working-directory: ${{ steps.root.outputs.dir }}
         run: |
           set -e
-          test -s APP.ipa || { echo "::error::APP.ipa was not produced by make"; exit 1; }
+          test -s APP.ipa || { echo "::error::make 没有产出 APP.ipa"; exit 1; }
           ls -lh APP.ipa
           unzip -l APP.ipa | head -n 15
 
-      - name: Upload IPA
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: APP-ipa
-          path: APP.ipa
+          name: APP
+          path: ${{ steps.root.outputs.dir }}/APP.ipa
           if-no-files-found: error
