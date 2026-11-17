@@ -1028,7 +1028,7 @@ struct DownloadView: SwiftUI.View {
                 )
 
             Button(action: {
-                guard let url = URL(string: "https://github.com/pxx917144686"),
+                guard let url = URL(string: "https://github.com/zouyelin/APP"),
                     UIApplication.shared.canOpenURL(url) else {
                     return
                 }
