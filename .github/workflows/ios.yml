@@ -3,37 +3,22 @@ name: Build IPA
 on:
   workflow_dispatch:
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    # 用 arm64 池子（Apple Silicon），编译速度比 Intel 快 3~5 倍
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+     - uses: actions/checkout@v4
+     - name: Compile
+       run: make
 
-      - name: 选用最新 Xcode
-        run: |
-          set -e
-          XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
-          echo "使用 $XC"
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
-
-      - name: Compile
-        run: |
-          set -o pipefail
-          make 2>&1 | tee /tmp/build.log
-
-      - name: 失败时上传日志
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: /tmp/build.log
-          if-no-files-found: ignore
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: APP
-          path: APP.ipa
-          if-no-files-found: error
+     - name: Upload artifact
+       uses: actions/upload-artifact@v4
+       with:
+        name: APP
+        path: APP.ipa
+        if-no-files-found: error
