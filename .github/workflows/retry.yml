@@ -1,0 +1,26 @@
+name: Auto Retry Build
+
+on:
+  workflow_run:
+    workflows: ["Build IPA"]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  retry:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt < 4
+    runs-on: ubuntu-latest
+    steps:
+      - name: 重新排队
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          echo "构建第 ${ATTEMPT} 次失败，正在自动重新排队…"
+          sleep 20
+          gh api -X POST "repos/${{ github.repository }}/actions/runs/${RUN_ID}/rerun"

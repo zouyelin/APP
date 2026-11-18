@@ -1,0 +1,609 @@
+import Foundation
+
+enum SearchError: Error, LocalizedError {
+    case networkError(Error)
+    case invalidResponse
+    case noResults
+    case invalidAppIdentifier
+    case rateLimited
+    case emptyQuery
+    case invalidLimit
+    case invalidBundleId
+    case invalidTrackId
+    case missingIdentifier
+    case appNotFound
+    var errorDescription: String? {
+        switch self {
+        case .networkError(let error):
+            return "dl_err_network".localized(error.localizedDescription)
+        case .invalidResponse:
+            return "api_err_invalid_response".localized
+        case .noResults:
+            return "api_err_no_apps".localized
+        case .invalidAppIdentifier:
+            return "api_err_invalid_app_id".localized
+        case .rateLimited:
+            return "api_err_rate_limited".localized
+        case .emptyQuery:
+            return "api_err_empty_term".localized
+        case .invalidLimit:
+            return "api_err_invalid_limit".localized
+        case .invalidBundleId:
+            return "api_err_invalid_bundle".localized
+        case .invalidTrackId:
+            return "api_err_invalid_track".localized
+        case .missingIdentifier:
+            return "api_err_missing_identifier".localized
+        case .appNotFound:
+            return "api_err_app_not_found".localized
+        }
+    }
+}
+
+enum DeviceFamily: String, CaseIterable, Codable {
+    case phone = "iPhone"
+    case pad = "iPad"
+
+    static let `default` = DeviceFamily.phone
+
+    var displayName: String {
+        switch self {
+        case .phone:
+            return "iPhone"
+        case .pad:
+            return "iPad"
+        }
+    }
+
+    var softwareType: String {
+        switch self {
+        case .phone: return "software"
+        case .pad: return "iPadSoftware"
+        }
+    }
+
+    var identifier: String {
+        return self.rawValue
+    }
+}
+
+struct iTunesResponse: Codable {
+    let resultCount: Int
+    let results: [iTunesSearchResult]
+}
+
+struct iTunesSearchResult: Codable, Identifiable, Hashable {
+    let trackId: Int
+    let trackName: String
+    let artistName: String?
+    let bundleId: String
+    let version: String
+    let formattedPrice: String?
+    let price: Double?
+    let currency: String?
+    let trackViewUrl: String
+    let artworkUrl60: String?
+    let artworkUrl100: String?
+    let artworkUrl512: String?
+    let screenshotUrls: [String]?
+    let ipadScreenshotUrls: [String]?
+    let description: String?
+    let releaseNotes: String?
+    let sellerName: String?
+    let genres: [String]?
+    let primaryGenreName: String?
+    let contentAdvisoryRating: String?
+    let averageUserRating: Double?
+    let userRatingCount: Int?
+    let fileSizeBytes: String?
+    let minimumOsVersion: String?
+    let currentVersionReleaseDate: String?
+    let releaseDate: String?
+    let isGameCenterEnabled: Bool?
+    let supportedDevices: [String]?
+    let languageCodesISO2A: [String]?
+    let advisories: [String]?
+    let features: [String]?
+
+    var id: Int { trackId }
+
+    enum CodingKeys: String, CodingKey {
+        case trackId, trackName, artistName, bundleId, version, formattedPrice, price, currency, trackViewUrl
+        case artworkUrl60, artworkUrl100, artworkUrl512
+        case screenshotUrls, ipadScreenshotUrls, description, releaseNotes
+        case sellerName, genres, primaryGenreName, contentAdvisoryRating
+        case averageUserRating, userRatingCount, fileSizeBytes
+        case minimumOsVersion, currentVersionReleaseDate, releaseDate
+        case isGameCenterEnabled, supportedDevices, languageCodesISO2A
+        case advisories, features
+    }
+}
+
+private final class AMPRedirectStopper: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
+extension iTunesClient {
+    fileprivate func fetchPageManuallyFollowingRedirects(_ start: URL) async throws -> (Data, HTTPURLResponse) {
+        let delegate = AMPRedirectStopper()
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        var current = start
+        for _ in 0..<5 {
+            var request = URLRequest(url: current)
+            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 20
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw SearchError.invalidResponse
+            }
+            if (300..<400).contains(http.statusCode),
+               let loc = http.value(forHTTPHeaderField: "Location"),
+               let next = URL(string: loc, relativeTo: current) {
+                current = next
+                continue
+            }
+            return (data, http)
+        }
+        throw SearchError.invalidResponse
+    }
+}
+
+@MainActor
+class iTunesClient: @unchecked Sendable {
+    static let shared = iTunesClient()
+    private let session: URLSession
+    private let baseURL = "https://itunes.apple.com"
+
+    private init() {
+        let config = URLSessionConfiguration.default
+        config.connectionProxyDictionary = [
+            "HTTPEnable": 0,
+            "HTTPSEnable": 0,
+            "SOCKSEnable": 0,
+            "HTTPProxy": "",
+            "HTTPSProxy": "",
+            "SOCKSProxy": ""
+        ]
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 60
+        config.tlsMinimumSupportedProtocolVersion = .TLSv12
+        config.tlsMaximumSupportedProtocolVersion = .TLSv13
+        config.allowsCellularAccess = true
+        config.allowsExpensiveNetworkAccess = true
+        config.allowsConstrainedNetworkAccess = true
+        config.networkServiceType = .responsiveData
+        self.session = URLSession(configuration: config)
+    }
+
+    private func storefrontCode(for countryCode: String) -> String {
+        let cc = countryCode.uppercased()
+        return Apple.storeFrontCodeMap[cc] ?? "143441"
+    }
+    private func appsPageURL(country: String, appId: Int) -> URL {
+        return URL(string: "https://apps.apple.com/\(country)/app/id\(appId)")!
+    }
+    private var ampTokenCache: [String: (token: String, timestamp: Date)] = [:]
+    private var ampTokenInflight: [String: Task<String, Error>] = [:]
+    private let ampTokenTTL: TimeInterval = 30 * 60
+
+    private func fetchAMPTargetToken(country: String, appId: Int) async throws -> String {
+        let key = country.lowercased()
+        if let cached = ampTokenCache[key], Date().timeIntervalSince(cached.timestamp) < ampTokenTTL {
+            return cached.token
+        }
+        if let inflight = ampTokenInflight[key] {
+            return try await inflight.value
+        }
+
+        let task = Task { [country, appId] in
+            do {
+                return try await self.scrapeAMPTargetToken(country: country, appId: appId)
+            } catch {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                return try await self.scrapeAMPTargetToken(country: country, appId: appId)
+            }
+        }
+        ampTokenInflight[key] = task
+        defer { ampTokenInflight[key] = nil }
+
+        let token = try await task.value
+        ampTokenCache[key] = (token, Date())
+        return token
+    }
+
+    private func scrapeAMPTargetToken(country: String, appId: Int) async throws -> String {
+        let url = appsPageURL(country: country, appId: appId)
+        let (data, response) = try await fetchPageManuallyFollowingRedirects(url)
+        guard response.statusCode == 200,
+              let html = String(data: data, encoding: .utf8) else {
+            throw SearchError.invalidResponse
+        }
+
+        let patterns = [
+            #"token%22%3A%22([^%]+)%22%7D"#,
+            #""token":"([^"]+)""#,
+            #"token%22%3A%22([a-zA-Z0-9_\-]+)\"#,
+            #"media-api.*?token.*?([a-zA-Z0-9_\.]{50,})"#
+        ]
+
+        for pattern in patterns {
+            let regex = try? NSRegularExpression(pattern: pattern, options: [])
+            let range = NSRange(location: 0, length: html.utf16.count)
+            if let match = regex?.firstMatch(in: html, options: [], range: range), match.numberOfRanges >= 2,
+               let tokenRange = Range(match.range(at: 1), in: html) {
+                let token = String(html[tokenRange])
+                if !token.isEmpty {
+                    return token
+                }
+            }
+        }
+
+        throw SearchError.invalidResponse
+    }
+
+    func search(
+        term: String,
+        limit: Int = 50,
+        countryCode: String = "",
+        deviceFamily: DeviceFamily = .phone
+    ) async throws -> [iTunesSearchResult]? {
+        var components = URLComponents(string: "\(baseURL)/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: term),
+            URLQueryItem(name: "country", value: countryCode.lowercased()),
+            URLQueryItem(name: "media", value: "software"),
+            URLQueryItem(name: "entity", value: deviceFamily.softwareType),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        guard let url = components.url else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("iTunes/12.12.0 (Macintosh; OS X 10.15.7) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        let decoder = JSONDecoder()
+        let iTunesResponse = try decoder.decode(iTunesResponse.self, from: data)
+        return iTunesResponse.results.isEmpty ? nil : iTunesResponse.results
+    }
+
+    func lookup(
+        bundleIdentifier: String,
+        countryCode: String = "",
+        deviceFamily: DeviceFamily = .phone
+    ) async throws -> iTunesSearchResult? {
+        var components = URLComponents(string: "\(baseURL)/lookup")!
+        components.queryItems = [
+            URLQueryItem(name: "bundleId", value: bundleIdentifier),
+            URLQueryItem(name: "country", value: countryCode.lowercased()),
+            URLQueryItem(name: "media", value: "software"),
+            URLQueryItem(name: "entity", value: deviceFamily.softwareType),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        guard let url = components.url else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("iTunes/12.12.0 (Macintosh; OS X 10.15.7) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        let decoder = JSONDecoder()
+        let iTunesResponse = try decoder.decode(iTunesResponse.self, from: data)
+        return iTunesResponse.resultCount > 0 ? iTunesResponse.results.first : nil
+    }
+
+    enum ReviewSort: String { case mostRecent = "mostRecent", mostHelpful = "mostHelpful" }
+    struct AppReview: Codable, Identifiable, Hashable {
+        let id: String
+        let userName: String
+        let userUrl: String
+        let version: String
+        let score: Int
+        let title: String
+        let text: String
+        let url: String
+        let updated: String
+    }
+    func reviews(
+        id: Int,
+        country: String = "",
+        page: Int = 1,
+        sort: ReviewSort = .mostRecent
+    ) async throws -> [AppReview] {
+        let url = URL(string: "https://itunes.apple.com/\(country.isEmpty ? "us" : country)/rss/customerreviews/page=\(page)/id=\(id)/sortby=\(sort.rawValue)/json")!
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw SearchError.invalidResponse }
+
+        let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+        let feed = json?["feed"] as? [String: Any]
+        let entries = (feed?["entry"] as? [[String: Any]]) ?? []
+        let map: ( [String: Any] ) -> AppReview? = { entry in
+            guard let id = (entry["id"] as? [String: Any])?["label"] as? String,
+                  let author = entry["author"] as? [String: Any],
+                  let name = (author["name"] as? [String: Any])?["label"] as? String,
+                  let uri = (author["uri"] as? [String: Any])?["label"] as? String,
+                  let version = ((entry["im:version"] as? [String: Any])?["label"]) as? String,
+                  let ratingStr = ((entry["im:rating"] as? [String: Any])?["label"]) as? String,
+                  let rating = Int(ratingStr),
+                  let title = (entry["title"] as? [String: Any])?["label"] as? String,
+                  let text = (entry["content"] as? [String: Any])?["label"] as? String,
+                  let link = (entry["link"] as? [String: Any])?["attributes"] as? [String: Any],
+                  let href = link["href"] as? String,
+                  let updated = (entry["updated"] as? [String: Any])?["label"] as? String
+            else { return nil }
+            return AppReview(id: id, userName: name, userUrl: uri, version: version, score: rating, title: title, text: text, url: href, updated: updated)
+        }
+        return entries.compactMap(map)
+    }
+
+    struct AppVersionInfo: Codable, Identifiable, Hashable {
+
+        let version: String
+
+        let releaseDate: Date
+
+        let releaseNotes: String?
+
+        var id: String { "\(version)_\(releaseDate.timeIntervalSince1970)" }
+
+        var formattedDate: String {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            return formatter.string(from: releaseDate)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case version = "versionDisplay"
+            case releaseDate = "releaseDate"
+            case releaseNotes = "releaseNotes"
+            case releaseTimestamp = "releaseTimestamp"
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(version, forKey: .version)
+            try container.encodeIfPresent(releaseNotes, forKey: .releaseNotes)
+
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let dateString = formatter.string(from: releaseDate)
+            try container.encode(dateString, forKey: .releaseDate)
+        }
+
+        init(version: String, releaseDate: Date, releaseNotes: String?) {
+            self.version = version
+            self.releaseDate = releaseDate
+            self.releaseNotes = releaseNotes
+        }
+
+        private enum AltKeys: String, CodingKey {
+            case version
+            case releaseDate
+            case releaseTimestamp
+        }
+
+        static func parseDateString(_ raw: String) -> Date? {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            let withFraction = ISO8601DateFormatter()
+            withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = withFraction.date(from: trimmed) { return date }
+
+            let plain = ISO8601DateFormatter()
+            plain.formatOptions = [.withInternetDateTime]
+            if let date = plain.date(from: trimmed) { return date }
+
+            for pattern in ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd"] {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                formatter.dateFormat = pattern
+                if let date = formatter.date(from: trimmed) { return date }
+            }
+            return nil
+        }
+
+        static func parseTimestamp(_ value: Double) -> Date {
+            let seconds = value > 1_000_000_000_000 ? value / 1000.0 : value
+            return Date(timeIntervalSince1970: seconds)
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            if let display = try? container.decode(String.self, forKey: .version) {
+                version = display
+            } else {
+                let alt = try decoder.container(keyedBy: AltKeys.self)
+                version = try alt.decode(String.self, forKey: .version)
+            }
+
+            releaseNotes = try? container.decodeIfPresent(String.self, forKey: .releaseNotes)
+
+            var parsed: Date?
+
+            if let raw = try? container.decode(String.self, forKey: .releaseDate) {
+                parsed = Self.parseDateString(raw)
+            }
+            if parsed == nil, let number = try? container.decode(Double.self, forKey: .releaseDate) {
+                parsed = Self.parseTimestamp(number)
+            }
+            if parsed == nil, let raw = try? container.decode(String.self, forKey: .releaseTimestamp) {
+                if let seconds = TimeInterval(raw) {
+                    parsed = Self.parseTimestamp(seconds)
+                } else {
+                    parsed = Self.parseDateString(raw)
+                }
+            }
+            if parsed == nil, let number = try? container.decode(Double.self, forKey: .releaseTimestamp) {
+                parsed = Self.parseTimestamp(number)
+            }
+
+            releaseDate = parsed ?? .distantPast
+        }
+    }
+
+    func versionHistory(id: Int, country: String = "US") async throws -> [AppVersionInfo] {
+        let countryCode = country.isEmpty ? "US" : country
+
+        if let versions = try? await fetchVersionHistoryFromAMPApi(id: id, country: countryCode), !versions.isEmpty {
+            return Self.sortVersionInfo(versions)
+        }
+
+        if let versions = try? await fetchVersionHistoryFromLookupApi(id: id, country: countryCode), !versions.isEmpty {
+            return Self.sortVersionInfo(versions)
+        }
+
+        throw SearchError.invalidResponse
+    }
+
+    private func fetchVersionHistoryFromAMPApi(id: Int, country: String) async throws -> [AppVersionInfo] {
+        let token = try await fetchAMPTargetToken(country: country, appId: id)
+        let urlString = "https://amp-api-edge.apps.apple.com/v1/catalog/\(country.lowercased())/apps/\(id)?platform=web&extend=versionHistory"
+        guard let url = URL(string: urlString) else {
+            throw SearchError.invalidResponse
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("https://apps.apple.com", forHTTPHeaderField: "Origin")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw SearchError.invalidResponse
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataArray = json["data"] as? [[String: Any]],
+              let firstApp = dataArray.first,
+              let attributes = firstApp["attributes"] as? [String: Any] else {
+            throw SearchError.invalidResponse
+        }
+
+        if let platformAttrs = attributes["platformAttributes"] as? [String: Any] {
+            for platformKey in ["ios", "iPhone OS", "ipad", "appleTV", "mac"] {
+                if let platform = platformAttrs[platformKey] as? [String: Any],
+                   let versions = platform["versionHistory"] as? [Any], !versions.isEmpty {
+                    return try parseVersionHistory(from: versions)
+                }
+            }
+        }
+
+        if let versions = attributes["versionHistory"] as? [Any], !versions.isEmpty {
+            return try parseVersionHistory(from: versions)
+        }
+
+        if let relationships = attributes["platformAttributes"] as? [String: Any] ?? attributes["relationships"] as? [String: Any] {
+            for (_, value) in relationships {
+                if let dict = value as? [String: Any],
+                   let versions = dict["versionHistory"] as? [Any], !versions.isEmpty {
+                    return try parseVersionHistory(from: versions)
+                }
+            }
+        }
+
+        throw SearchError.invalidResponse
+    }
+
+    private func fetchVersionHistoryFromLookupApi(id: Int, country: String) async throws -> [AppVersionInfo] {
+        let url = URL(string: "\(baseURL)/lookup?id=\(id)&country=\(country.lowercased())")!
+        let (data, _) = try await session.data(from: url)
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = json["results"] as? [[String: Any]],
+              let firstResult = results.first else {
+            throw SearchError.invalidResponse
+        }
+
+        var versions: [AppVersionInfo] = []
+
+        if let version = firstResult["version"] as? String,
+           let currentVersionReleaseDate = firstResult["currentVersionReleaseDate"] as? String {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let releaseDate = formatter.date(from: currentVersionReleaseDate) ?? Date()
+
+            let versionInfo = AppVersionInfo(
+                version: version,
+                releaseDate: releaseDate,
+                releaseNotes: firstResult["releaseNotes"] as? String
+            )
+            versions.append(versionInfo)
+        }
+
+        if let versionHistory = firstResult["versionHistory"] as? [[String: Any]] {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+            for item in versionHistory {
+                if let version = item["version"] as? String,
+                   let releaseDateStr = item["releaseDate"] as? String,
+                   let releaseDate = formatter.date(from: releaseDateStr) {
+                    let versionInfo = AppVersionInfo(
+                        version: version,
+                        releaseDate: releaseDate,
+                        releaseNotes: item["releaseNotes"] as? String
+                    )
+                    versions.append(versionInfo)
+                }
+            }
+        }
+
+        return versions.sorted { $0.releaseDate > $1.releaseDate }
+    }
+
+    private func parseVersionHistory(from jsonArray: [Any]) throws -> [AppVersionInfo] {
+        let decoder = JSONDecoder()
+        let data = try JSONSerialization.data(withJSONObject: jsonArray)
+        let decoded = try decoder.decode([AppVersionInfo].self, from: data)
+        return Self.sortVersionInfo(decoded)
+    }
+
+    private static func sortVersionInfo(_ items: [AppVersionInfo]) -> [AppVersionInfo] {
+        items.sorted { lhs, rhs in
+            if lhs.releaseDate != rhs.releaseDate {
+                return lhs.releaseDate > rhs.releaseDate
+            }
+            return lhs.version.compare(rhs.version, options: .numeric) == .orderedDescending
+        }
+    }
+
+    struct SuggestTerm: Codable, Identifiable, Hashable { let term: String; var id: String { term } }
+
+    func suggest(term: String) async throws -> [SuggestTerm] {
+        guard let encoded = term.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
+        let url = URL(string: "https://search.itunes.apple.com/WebObjects/MZSearchHints.woa/wa/hints?clientApplication=Software&term=\(encoded)")!
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw SearchError.invalidResponse }
+        let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        guard let dict = plist as? [String: Any],
+              let arr = ((dict["plist"] as? [String: Any])?["dict"] as? [String: Any])?["array"] as? [[String: Any]] ?? (dict["array"] as? [[String: Any]]),
+              let list = arr.first? ["dict"] as? [[String: Any]] else { return [] }
+        var terms: [SuggestTerm] = []
+        for entry in list {
+            if let s = entry["string"] as? [String], let t = s.first { terms.append(SuggestTerm(term: t)) }
+        }
+        return terms
+    }
+}
+
+extension iTunesSearchResult {
+
+    var name: String { trackName }
+}
