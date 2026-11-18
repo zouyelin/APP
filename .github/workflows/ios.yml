@@ -5,9 +5,8 @@ on:
 
 jobs:
   build:
-    # arm64 池子经常排不到机器（GitHub 明示 capacity constraints），
-    # 改用 Intel(x86_64) 池子；编 iOS 包不受影响，只是慢一点。
-    runs-on: macos-15-intel
+    # 用 arm64 池子（Apple Silicon），编译速度比 Intel 快 3~5 倍
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
