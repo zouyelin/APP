@@ -1,0 +1,14 @@
+# 本地工具脚本（不纳入版本控制）
+*.command
+*.command.zip
+*.zip
+使用说明.txt
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# 构建产物 / Xcode 中间文件
+build/
+DerivedData/
+*.ipa

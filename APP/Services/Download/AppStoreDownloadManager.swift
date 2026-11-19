@@ -1100,7 +1100,7 @@ extension AppStoreDownloadManager {
         didFinishDownloadingTo location: URL
     ) {
 
-        guard let downloadId: String = locked({ downloadId(for: downloadTask) }) else { return }
+        guard let downloadId: String = locked({ self.downloadId(for: downloadTask) }) else { return }
 
         let resolved: (destination: URL, storeItem: DownloadStoreItem)? = locked {
             if downloadDestinations[downloadId] == nil || downloadStoreItems[downloadId] == nil,
