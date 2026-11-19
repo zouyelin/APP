@@ -66,33 +66,6 @@ make clean
 
 ---
 
-## 界面预览
-
-<p align="center">
-  <img src="./X/13.png" width="260" />
-  <img src="./X/14.png" width="260" />
-</p>
-
-<p align="center">
-  <img src="./X/1.PNG" width="200" />
-  <img src="./X/2.PNG" width="200" />
-  <img src="./X/3.PNG" width="200" />
-  <img src="./X/4.PNG" width="200" />
-  <img src="./X/5.PNG" width="200" />
-  <img src="./X/6.PNG" width="200" />
-</p>
-
-<p align="center">
-  <img src="./X/7.PNG" width="200" />
-  <img src="./X/8.PNG" width="200" />
-  <img src="./X/9.PNG" width="200" />
-  <img src="./X/10.PNG" width="200" />
-  <img src="./X/11.PNG" width="200" />
-  <img src="./X/12.PNG" width="200" />
-</p>
-
----
-
 ## 许可
 
 沿用上游的 [Unlicense](https://unlicense.org/#unlicensed-free-software) —— 属于公有领域，可自由使用、修改与分发，无需署名。
