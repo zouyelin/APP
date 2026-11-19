@@ -42,13 +42,13 @@
       allowLocationSimulation = "YES">
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "851FD95E2E578774002136BA"
-            BuildableName = "APP.app"
-            BlueprintName = "APP"
-            ReferencedContainer = "container:APP.xcodeproj">
-         </BuildableReference>
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "851FD95E2E578774002136BA"
+               BuildableName = "APP.app"
+               BlueprintName = "APP"
+               ReferencedContainer = "container:APP.xcodeproj">
+            </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction
@@ -59,13 +59,13 @@
       debugDocumentVersioning = "YES">
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "851FD95E2E578774002136BA"
-            BuildableName = "APP.app"
-            BlueprintName = "APP"
-            ReferencedContainer = "container:APP.xcodeproj">
-         </BuildableReference>
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "851FD95E2E578774002136BA"
+               BuildableName = "APP.app"
+               BlueprintName = "APP"
+               ReferencedContainer = "container:APP.xcodeproj">
+            </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
    <AnalyzeAction
