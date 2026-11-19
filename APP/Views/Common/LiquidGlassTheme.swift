@@ -93,35 +93,27 @@ struct LiquidGlassBackdrop: View {
 extension View {
     @ViewBuilder
     func liquidGlassSurface(cornerRadius: CGFloat = 16) -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        } else {
-            self
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.28), Color.white.opacity(0.06)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.6
-                        )
-                )
-                .shadow(color: Color.black.opacity(0.14), radius: 18, x: 0, y: 8)
-        }
+        self
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.28), Color.white.opacity(0.06)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.6
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.14), radius: 18, x: 0, y: 8)
     }
 
     @ViewBuilder
     func liquidGlassCircle() -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular, in: Circle())
-        } else {
-            self
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5))
-        }
+        self
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5))
     }
 }
 
