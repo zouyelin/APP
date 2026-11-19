@@ -5,11 +5,11 @@ import SwiftUI
 final class TabOrderStore: ObservableObject {
     static let shared = TabOrderStore()
 
-    static let reorderable: [TabEnum] = [.search, .downloads, .purchased, .settings]
+    static let reorderable: [TabEnum] = [.search, .downloads, .purchased, .sign, .settings]
 
     @Published private(set) var order: [TabEnum]
 
-    private let storageKey = "tab_order_v2"
+    private let storageKey = "tab_order_v5"
 
     private init() {
         let saved = UserDefaults.standard.stringArray(forKey: storageKey) ?? []

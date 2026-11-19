@@ -1,77 +1,109 @@
-# APP
+## 大白话：Unlicense 许可证——你用、改、卖，换命名，你开心就好！
 
-一个用于 iOS 应用下载、脱壳与安装的工具，本仓库基于上游项目持续跟进维护，并在其基础上做了一些界面与交互上的调整。
+##### ”社区的核心精神“
+```js
+——如果每份公开的代码都要附加一堆条条框框，劝退很多人主动分享。
 
-> 当前版本跟随上游 **2.7.0**。
+——“代码能用、能被改进” 比 “内容归属” 重要得多。
+```
+🔴 <font color="red">遵循 [Unlicense 许可证](https://unlicense.org/#unlicensed-free-software)</font>
 
----
+🟢 <font color="green">遵循 [早期黑客文化](https://en.wikipedia.org/wiki/Hacker_culture) 是"无限制"的</font>
 
-## 本仓库与上游的差异
+🔵 <font color="blue">[早期 UNIX](https://en.wikipedia.org/wiki/History_of_Unix) 是"无限制"的</font>
 
-除同步上游代码外，这里额外做了以下改动：
 
-| 项目 | 说明 |
-|---|---|
-| 底部栏顺序 | 调整为 `搜索 / 下载 / 已购 / 设置`，启动后默认停留在搜索页 |
-| 悬浮卡片排序 | 由写死的固定顺序改为跟随底部栏顺序，支持拖动调整 |
-| 悬浮栏圆钮 | 搜索圆钮移到最左侧，与顺序保持一致 |
-| 删除确认框 | 修复左滑删除时弹窗被收起、无法点击「删除全部」的问题 |
-| 源码入口 | 下载页「查看源代码」指向本仓库 |
+# 工作流
+```js
 
-改动随上游更新自动重新应用，不会因同步而丢失。
+name: Build IPA
 
----
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
 
-## 编译要求
-
-| 项目 | 版本 |
-|---|---|
-| macOS | 15.3 或更高 |
-| Xcode | **16.4**（需 Swift 6.1.2 及以上） |
-| iOS SDK | 18.5 |
-
-> 依赖中包含需要 Swift 6.1 / 6.2 工具链的包，因此 Xcode 版本低于 16.4 会编译失败。
-
----
-
-## 本地编译
-
-在项目根目录执行：
-
-```bash
-make
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+     - uses: actions/checkout@v3
+     - name: Compile
+       run: make
+     
+     - name: Upload artifact
+       uses: actions/upload-artifact@v4
+       with:
+        name: APP
+        path: APP.ipa
 ```
 
-产物为当前目录下的 `APP.ipa`，未签名，需自行使用证书重签后再安装。
+# make文件
+```js
+BASEDIR = $(shell pwd)
+BUILD_DIR = $(BASEDIR)/build
+INSTALL_DIR = $(BUILD_DIR)/install
+PROJECT = $(BASEDIR)/APP.xcodeproj
+SCHEME = APP
+CONFIGURATION = Release
+SDK = iphoneos
+DERIVED_DATA_PATH = $(BUILD_DIR)
 
-编译过程中的产物与依赖缓存会写入 `build/` 目录。保留该目录可以复用 Swift Package 依赖，避免每次都重新下载。
+all: ipa
 
-清理：
+# 依赖关系
+ipa: $(PROJECT)
+	mkdir -p ./build
+	xcodebuild -jobs 8 -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIGURATION) -sdk $(SDK) -derivedDataPath $(DERIVED_DATA_PATH) CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=NO DSTROOT=$(INSTALL_DIR)
+	rm -rf ./build/APP.ipa
+	rm -rf ./build/Payload
+	mkdir -p ./build/Payload
+	cp -rv ./build/Build/Products/Release-iphoneos/APP.app ./build/Payload
+	cd ./build && zip -r APP.ipa Payload
+	mv ./build/APP.ipa ./
 
-```bash
-make clean
+# 强制重新构建
+force: clean ipa
+
+clean:
+	rm -rf ./build
+	rm -rf ./APP.ipa
+
+.PHONY: all ipa clean force
+
 ```
 
----
+![Preview](./X/14.png)
+![Preview](./X/13.png)
 
-## 关于未签名包
-
-`make` 通过 `CODE_SIGNING_ALLOWED=NO` 跳过签名，因此不需要 Apple 开发者账号，也不需要联网验证。
-
-安装到设备时，需使用自己的证书完成签名，常规方式均可：
-
-- Sideloadly / AltStore 等工具
-- 自有开发者证书手动重签
-- 设备支持免签方案时可直接安装
+# 本地编译 APP.ipa 方法
+## 终端: cd APP这文件夹
+## 终端: make
 
 ---
 
-## 许可
+<!-- 左右排列 -->
+<div style="display: flex; justify-content: space-evenly; align-items: center; width: 100%; overflow: auto; gap: 40px; padding: 10px 0;">
+    <img src="./X/1.PNG" alt="Preview" width="300" />
+    <img src="./X/2.PNG" alt="Preview" width="300" />
+    <img src="./X/3.PNG" alt="Preview" width="300" />
+    <img src="./X/4.PNG" alt="Preview" width="300" />
+    <img src="./X/5.PNG" alt="Preview" width="300" />
+    <img src="./X/6.PNG" alt="Preview" width="300" />
+</div>
 
-沿用上游的 [Unlicense](https://unlicense.org/#unlicensed-free-software) —— 属于公有领域，可自由使用、修改与分发，无需署名。
+<hr style="border: 1px solid #ccc; margin: 20px 0;">
 
 ---
 
-## 说明
+<!-- 左右排列 -->
+<div style="display: flex; justify-content: space-evenly; align-items: center; width: 100%; overflow: auto; gap: 40px; padding: 10px 0;">
+    <img src="./X/7.PNG" alt="Preview" width="300" />
+    <img src="./X/8.PNG" alt="Preview" width="300" />
+    <img src="./X/9.PNG" alt="Preview" width="300" />
+    <img src="./X/10.PNG" alt="Preview" width="300" />
+    <img src="./X/11.PNG" alt="Preview" width="300" />
+    <img src="./X/12.PNG" alt="Preview" width="300" />
+</div>
 
-本项目仅供学习与技术研究使用。使用过程中产生的一切后果由使用者自行承担。
+<hr style="border: 1px solid #ccc; margin: 20px 0;">
